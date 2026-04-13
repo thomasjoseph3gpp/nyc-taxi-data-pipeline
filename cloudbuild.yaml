@@ -1,0 +1,19 @@
+steps:
+  # Deploy DAGs to Cloud Composer
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Deploying DAGs to Composer bucket..."
+        gsutil -m rsync -r -d dags/ gs://us-central1-nyc-taxi-pipeli-6259b6ee-bucket/dags/
+        echo "DAG deployment complete."
+
+  # Verify deployment
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Verifying DAG files..."
+        gsutil ls gs://us-central1-nyc-taxi-pipeli-6259b6ee-bucket/dags/
