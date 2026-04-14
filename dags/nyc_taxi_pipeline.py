@@ -197,35 +197,35 @@ verify_quality = BigQueryInsertJobOperator(
     dag=dag,
 ) 
 
-transform_to_gold_daily  = BigQueryInsertJobOperator(
-    task_id = "transform_to_gold_daily",
-    configuration = {
+transform_to_gold_daily = BigQueryInsertJobOperator(
+    task_id="transform_to_gold_daily",
+    configuration={
         "query":{
             "query":GOLD_DAILY_SQL,
             "useLegacySql": False
         }
     },
-    dag = dag,
+    dag=dag,
 )
 transform_to_gold_location = BigQueryInsertJobOperator(
-    task_id = "transform_to_gold_location",
-    configuration = {
+    task_id="transform_to_gold_location",
+    configuration={
         "query":{
             "query":GOLD_LOCATION_SQL,
             "useLegacySql":False
         }
     },
-    dag = dag,
+    dag=dag,
 )
-transform_to_gold_hourly = BigQueryInsertJobOperator(
-    task_id = "transform_to_gold_hourly",
-    configuration = {
+transform_to_gold_hourly=BigQueryInsertJobOperator(
+    task_id="transform_to_gold_hourly",
+    configuration={
         "query":{
         "query":GOLD_HOURLY_SQL,
         "useLegacySql":False
-    }
+        }
     },
-    dag = dag,
+    dag=dag,
 )
 send_alert = EmailOperator(
     task_id="send_success_email",
