@@ -20,7 +20,7 @@ SILVER_TABLE = f"{PROJECT_ID}.{DATASET}.silver_nyc-taxi-data-final"
 SILVER_SQL = f"""
 CREATE OR REPLACE TABLE `{SILVER_TABLE}`
 PARTITION BY DATE(tpep_pickup_datetime)
-CLUSTER BY VendorID, payment_type
+CLUSTER BY VendorID, payment_type, dq_status
 AS
 SELECT 
     VendorID,
