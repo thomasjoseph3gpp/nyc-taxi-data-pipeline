@@ -43,7 +43,8 @@ SELECT
     congestion_surcharge,
     Airport_fee,
     CURRENT_TIMESTAMP() AS processed_timestamp,
-    FORMAT_TIMESTAMP('%Y%%m%%d%%H%%M%%S', CURRENT_TIMESTAMP()) AS batch_id
+    FORMAT_TIMESTAMP('%Y%%m%%d%%H%%M%%S', CURRENT_TIMESTAMP()) AS batch_id,
+    "PASS" AS dq_status
 FROM `{BRONZE_TABLE}`
 WHERE 
     TIMESTAMP_DIFF(tpep_dropoff_datetime, tpep_pickup_datetime, second) > 0
