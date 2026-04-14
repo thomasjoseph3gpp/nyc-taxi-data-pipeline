@@ -16,6 +16,9 @@ PROJECT_ID = "nyc-taxi-stream-pipeline-final"
 DATASET = "nyc_data_final"
 BRONZE_TABLE = f"{PROJECT_ID}.{DATASET}.nyc-taxi-data-final"
 SILVER_TABLE = f"{PROJECT_ID}.{DATASET}.silver_nyc-taxi-data-final"
+GOLD_DAILY_TABLE = f"{PROJECT_ID}.{DATASET}.gold_daily_metrics"
+GOLD_LOCATION_TABLE = f"{PROJECT_ID}.{DATASET}.gold_location_metrics"
+GOLD_HOURLY_TABLE = f"{PROJECT_ID}.{DATASET}.gold_hourly_metrics"
 #SQL Script for Bronze to Silver Transformation
 SILVER_SQL = f"""
 CREATE OR REPLACE TABLE `{SILVER_TABLE}`
@@ -52,6 +55,95 @@ WHERE
     AND trip_distance > 0
     AND fare_amount > 0
 """
+
+GOLD_DAILY_SQL = f"""
+
+CREATE OR REPLACE TABLE `nyc-taxi-stream-pipeline-final.nyc_data_final.gold_daily_metrics` 
+
+CLUSTER BY VendorID 
+AS
+SELECT 
+DATE(tpep_pickup_datetime) AS trip_date,
+VendorID,
+COUNT(*) AS total_trips,
+SUM(passenger_count) AS total_passengers,
+ROUND(AVG(passenger_count),2) AS avg_passengers,
+ROUND(SUM(trip_distance),2) AS total_distance,
+ROUND(AVG(trip_distance),2) AS avg_distance,
+ROUND(SUM(fare_amount),2) AS total_fare,
+ROUND(AVG(fare_amount),2) AS avg_fare,
+ROUND(SUM(tip_amount),2) AS total_tip,
+ROUND(AVG(tip_amount),2) AS avg_tip,
+ROUND(SAFE_DIVIDE(SUM(tip_amount),SUM(fare_amount))*100,2) AS tip_percentage,
+COUNT(DISTINCT PULocationID) AS unique_pickup_locations,
+COUNT(DISTINCT DOLocationID ) AS unique_dropoff_locations
+FROM `nyc-taxi-stream-pipeline-final.nyc_data_final.silver_nyc-taxi-data-final`
+WHERE DATE(tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2024-01-31'
+GROUP BY DATE(tpep_pickup_datetime), VendorID
+"""
+
+GOLD_LOCATION_SQL = f"""
+CREATE OR REPLACE TABLE `nyc-taxi-stream-pipeline-final.nyc_data_final.gold_location_metrics`
+CLUSTER BY location_id
+AS  
+WITH locations_stats AS (
+
+SELECT
+PULocationID as location_id,
+'pickup' AS location_type,
+COUNT(*) AS total_trips,
+ROUND(SUM(fare_amount),2) AS total_fare,
+ROUND(AVG(fare_amount),2) AS avg_fare,
+ROUND(SUM(trip_distance),2) AS total_distance,
+ROUND(AVG(trip_distance),2) AS avg_distance,
+ROUND(SUM(tip_amount),2) AS total_tip,
+ROUND(SAFE_DIVIDE(SUM(tip_amount), SUM(fare_amount))*100,2) AS avg_tip_percentage
+FROM `nyc-taxi-stream-pipeline-final.nyc_data_final.silver_nyc-taxi-data-final`
+WHERE DATE(tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2024-01-31'
+GROUP BY PULocationID
+
+
+UNION ALL
+
+SELECT
+DOLocationID as location_id,
+'dropoff' AS location_type,
+COUNT(*) AS total_trips,
+ROUND(SUM(fare_amount),2) AS total_fare,
+ROUND(AVG(fare_amount),2) AS avg_fare,
+ROUND(SUM(trip_distance),2) AS total_distance,
+ROUND(AVG(trip_distance),2) AS avg_distance,
+ROUND(SUM(tip_amount),2) AS total_tip,
+ROUND(SAFE_DIVIDE(SUM(tip_amount), SUM(fare_amount))*100,2) AS avg_tip_percentage
+FROM `nyc-taxi-stream-pipeline-final.nyc_data_final.silver_nyc-taxi-data-final`
+WHERE DATE(tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2024-01-31'
+GROUP BY DOLocationID
+)
+SELECT *, ROW_NUMBER() OVER( ORDER BY total_trips DESC) AS rank_by_trips
+FROM locations_stats
+"""
+
+GOLD_HOURLY_SQL = f"""
+
+CREATE OR REPLACE TABLE `nyc-taxi-stream-pipeline-final.nyc_data_final.gold_hourly_metrics`
+CLUSTER BY trip_hour, is_weekend
+
+AS
+SELECT 
+EXTRACT(HOUR FROM tpep_pickup_datetime) AS trip_hour,
+EXTRACT(DAYOFWEEK FROM tpep_pickup_datetime) AS day_of_week,
+CASE WHEN EXTRACT(DAYOFWEEK FROM tpep_pickup_datetime)  IN (1,7) THEN TRUE ELSE FALSE END AS is_weekend,
+COUNT(*) AS total_trips,
+ROUND(AVG(TIMESTAMP_DIFF(tpep_dropoff_datetime,tpep_pickup_datetime,MINUTE)),2) AS avg_trip_duration_minutes,
+ROUND(AVG(trip_distance),2) AS avg_distance,
+ROUND(AVG(fare_amount),2) AS avg_fare,
+ROUND(SAFE_DIVIDE(SUM(tip_amount), SUM(fare_amount)) * 100, 2) AS avg_tip_percentage
+FROM `nyc-taxi-stream-pipeline-final.nyc_data_final.silver_nyc-taxi-data-final`
+WHERE DATE(tpep_pickup_datetime) BETWEEN '2024-01-01' AND '2024-01-31'
+GROUP BY trip_hour, day_of_week, is_weekend
+"""
+
+
 
 #DAG Definition
 
@@ -104,6 +196,37 @@ verify_quality = BigQueryInsertJobOperator(
     },
     dag=dag,
 ) 
+
+transform_to_gold_daily  = BigQueryInsertJobOperator(
+    task_id = "transform_to_gold_daily",
+    configuration = {
+        "query":{
+            "query":GOLD_DAILY_SQL,
+            "useLegacySql": False
+        }
+    },
+    dag = dag,
+)
+transform_to_gold_location = BigQueryInsertJobOperator(
+    task_id = "transform_to_gold_location",
+    configuration:{
+        "query":{
+            "query":GOLD_LOCATION_SQL,
+            "useLegacySql":False
+        }
+    },
+    dag = dag,
+)
+transform_to_gold_hourly = BigQueryInsertJobOperator(
+    task_id = "transform_to_gold_hourly",
+    configuration = {
+        "query":{
+        "query":GOLD_HOURLY_SQL,
+        "useLegacySql":False
+    }
+    },
+    dag = dag,
+)
 send_alert = EmailOperator(
     task_id="send_success_email",
     to="thomasjosephgcp@gmail.com",
@@ -115,7 +238,11 @@ send_alert = EmailOperator(
 end = DummyOperator(task_id="end", dag=dag)
 
 # Dependencies
-start >> transform_to_silver >> verify_quality >> send_alert >> end
+start >> transform_to_silver >> verify_quality 
+
+verify_quality >> [transform_to_gold_daily, transform_to_gold_location, transform_to_gold_hourly] >> send_alert
+
+send_alert >> end
 
 "! Production ready v1.0" 
 "# Force trigger build" 
