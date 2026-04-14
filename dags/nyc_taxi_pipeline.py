@@ -209,7 +209,7 @@ transform_to_gold_daily  = BigQueryInsertJobOperator(
 )
 transform_to_gold_location = BigQueryInsertJobOperator(
     task_id = "transform_to_gold_location",
-    configuration:{
+    configuration = {
         "query":{
             "query":GOLD_LOCATION_SQL,
             "useLegacySql":False
